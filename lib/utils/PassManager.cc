@@ -4,6 +4,7 @@
 #include <memory>
 #include <queue>
 #include <unordered_set>
+#include <vector>
 
 #include "third-party/CLI11.h"
 #include "utils/BumpAllocator.h"

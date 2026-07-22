@@ -1,3 +1,4 @@
+#include <vector>
 #include "../IRPasses.h"
 #include "tir/CompilationUnit.h"
 #include "tir/Constant.h"

@@ -5,6 +5,7 @@
 #include <optional>
 #include <ostream>
 #include <string_view>
+#include <memory_resource>
 
 #include "tir/Context.h"
 #include "utils/User.h"

@@ -1,3 +1,4 @@
+#include <vector>
 #include "mc/InstSelectNode.h"
 #include "mc/MCFunction.h"
 #include "../IRPasses.h"

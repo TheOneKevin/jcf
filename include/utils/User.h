@@ -2,6 +2,8 @@
 
 #include <ranges>
 #include <unordered_set>
+#include <memory_resource>
+#include <vector>
 
 #include "utils/Assert.h" // IWYU pragma: keep
 #include "utils/BumpAllocator.h"

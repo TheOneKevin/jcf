@@ -1,5 +1,6 @@
 #include <sstream>
 #include <string_view>
+#include <vector>
 
 #include "ast/AstNode.h"
 #include "ast/Decl.h"

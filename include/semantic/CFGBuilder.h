@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
+#include <memory_resource>
 
 #include "ast/AstNode.h"
 #include "ast/Decl.h"

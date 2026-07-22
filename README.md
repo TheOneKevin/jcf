@@ -37,3 +37,38 @@ Our project directory structure is:
 - `lib/`: Contains the core compiler libraries. Includes AST, parser grammar and other files.
 - `tests/`: Contains the unit test drivers and data files.
 - `tools/`: Contains the frontends -- these are the programs you actually can run.
+
+
+## Getting Started (macOS)
+
+1. Install the dependencies via Homebrew:
+
+   ```
+   brew install cmake bison flex llvm@17
+   ```
+
+   `bison`, `flex`, and `llvm@17` are all keg-only, so Homebrew will not symlink
+   them into your `PATH`. That is fine — we point CMake at them explicitly below.
+
+2. Configure the build, pointing CMake at the Homebrew Clang, Bison, and Flex:
+
+   ```
+   mkdir build
+   cmake -S . -B build \
+     -DCMAKE_C_COMPILER=/opt/homebrew/opt/llvm@17/bin/clang \
+     -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm@17/bin/clang++ \
+     -DBISON_EXECUTABLE=/opt/homebrew/opt/bison/bin/bison \
+     -DFLEX_EXECUTABLE=/opt/homebrew/opt/flex/bin/flex
+   ```
+
+3. Build:
+
+   ```
+   make -C build all -j$(sysctl -n hw.ncpu)
+   ```
+
+   The tool binaries (`jcc1`, `scanner`, `parser`, ...) are written to `build/`.
+
+> **Note:** Use `llvm@17` rather than the latest `llvm`. Newer libc++ fully
+> removes some C++17-deprecated facilities (e.g. `std::result_of`) that this
+> codebase still relies on.

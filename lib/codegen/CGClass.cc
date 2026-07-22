@@ -1,3 +1,4 @@
+#include <vector>
 #include "ast/AstNode.h"
 #include "ast/Type.h"
 #include "codegen/CodeGen.h"

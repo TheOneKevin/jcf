@@ -2,6 +2,7 @@
 
 #include <string_view>
 #include <unordered_map>
+#include <memory_resource>
 
 #include "tir/Constant.h"
 #include "tir/Context.h"

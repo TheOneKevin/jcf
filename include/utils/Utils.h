@@ -4,6 +4,7 @@
 #include <ranges>
 #include <type_traits>
 #include <vector>
+#include <memory_resource>
 
 #include "utils/Assert.h" // IWYU pragma: keep
 

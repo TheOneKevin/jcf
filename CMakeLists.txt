@@ -65,12 +65,27 @@ endif()
 # Define YYDEBUG for bison
 add_compile_definitions(YYDEBUG=1)
 
+# On macOS, libc++ removed std::result_of in C++20. We still use it in our code.
+if(APPLE)
+    add_compile_definitions(_LIBCPP_ENABLE_CXX20_REMOVED_TYPE_TRAITS)
+endif()
+
 ################################################################################
 #                         Flex and Bison targets                               #
 ################################################################################
 
 find_package(FLEX 2.6 REQUIRED)
 find_package(BISON 3.8 REQUIRED)
+
+# Needed to override yyFlexLexer
+if(NOT FLEX_INCLUDE_DIR)
+    get_filename_component(_flex_bin_dir "${FLEX_EXECUTABLE}" DIRECTORY)
+    find_path(FLEX_INCLUDE_DIR FlexLexer.h HINTS "${_flex_bin_dir}/../include")
+endif()
+if(FLEX_INCLUDE_DIR)
+    message(STATUS "Using FlexLexer.h from: ${FLEX_INCLUDE_DIR}")
+    include_directories(BEFORE "${FLEX_INCLUDE_DIR}")
+endif()
 
 set(PARSER_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(LEXER_OUT "${PARSER_DIR}/joos1w_lexer.cpp")

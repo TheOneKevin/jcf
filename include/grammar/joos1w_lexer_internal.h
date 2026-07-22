@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <memory_resource>
 #ifndef INCLUDED_FLEXLEXER_H
    #warning "This file should not be included directly"
    #include <FlexLexer.h>

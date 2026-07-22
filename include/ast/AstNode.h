@@ -4,6 +4,7 @@
 #include <ranges>
 #include <string>
 #include <vector>
+#include <memory_resource>
 
 #include "diagnostics/Location.h"
 #include "parsetree/ParseTree.h"

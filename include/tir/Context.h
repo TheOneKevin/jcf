@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory_resource>
 #include "utils/BumpAllocator.h"
 #include "target/TargetInfo.h"
 

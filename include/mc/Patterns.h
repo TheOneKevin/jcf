@@ -5,6 +5,7 @@
 #include <ostream>
 #include <tuple>
 #include <type_traits>
+#include <vector>
 
 #include "mc/InstSelectNode.h"
 #include "utils/Generator.h"

@@ -1,6 +1,7 @@
 #include "semantic/HierarchyChecker.h"
 
 #include <utility>
+#include <memory_resource>
 
 #include "ast/AstNode.h"
 #include "ast/DeclContext.h"

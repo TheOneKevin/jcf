@@ -2,6 +2,7 @@
 
 #include <set>
 #include <string>
+#include <memory_resource>
 
 #include "ast/AstNode.h"
 #include "diagnostics/Location.h"

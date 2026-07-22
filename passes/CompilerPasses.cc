@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string_view>
+#include <memory_resource>
 
 #include "ast/AST.h"
 #include "diagnostics/Diagnostics.h"

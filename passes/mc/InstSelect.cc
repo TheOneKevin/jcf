@@ -1,4 +1,5 @@
 #include <queue>
+#include <vector>
 
 #include "mc/InstSelectNode.h"
 #include "mc/MCFunction.h"

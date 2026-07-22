@@ -2,6 +2,7 @@
 
 #include <utils/Assert.h>
 #include <utility>
+#include <memory_resource>
 
 #include "ast/AstNode.h"
 #include "parsetree/ParseTree.h"

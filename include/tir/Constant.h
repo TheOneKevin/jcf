@@ -2,6 +2,7 @@
 
 #include <forward_list>
 #include <string_view>
+#include <memory_resource>
 
 #include "tir/Instructions.h"
 #include "tir/Type.h"

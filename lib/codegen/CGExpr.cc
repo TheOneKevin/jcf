@@ -1,6 +1,7 @@
 #include "codegen/CGExpr.h"
 
 #include <utility>
+#include <vector>
 
 #include "ast/Decl.h"
 #include "ast/Type.h"

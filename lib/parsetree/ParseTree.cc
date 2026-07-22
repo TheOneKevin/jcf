@@ -13,10 +13,10 @@ bool Literal::isValid() const {
    errno = 0;
    char* endptr{};
    const long long int x = std::strtol(value.c_str(), &endptr, 10);
-   const long long int INT_MAX = 2147483647ULL;
+   const long long int kIntMax = 2147483647ULL;
    if(errno == ERANGE || *endptr != '\0') return false;
-   if(x > INT_MAX && !isNegative_) return false;
-   if(x > INT_MAX + 1 && isNegative_) return false;
+   if(x > kIntMax && !isNegative_) return false;
+   if(x > kIntMax + 1 && isNegative_) return false;
    return true;
 }
 

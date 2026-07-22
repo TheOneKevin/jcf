@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <memory_resource>
 
 #include "ast/AstNode.h"
 #include "ast/Decl.h"

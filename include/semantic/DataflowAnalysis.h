@@ -3,6 +3,7 @@
 #include "semantic/CFGBuilder.h"
 #include "utils/BumpAllocator.h"
 #include <set>
+#include <memory_resource>
 namespace semantic {
 
 class DataflowAnalysis {

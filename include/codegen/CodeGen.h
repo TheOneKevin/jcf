@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include "ast/AST.h"
 #include "ast/Decl.h"
 #include "ast/DeclContext.h"

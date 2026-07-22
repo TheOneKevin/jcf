@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <queue>
+#include <vector>
 
 #include "tir/BasicBlock.h"
 #include "tir/Type.h"

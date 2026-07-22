@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory_resource>
 #include "mc/InstSelectNode.h"
 #include "target/Target.h"
 #include "utils/BumpAllocator.h"

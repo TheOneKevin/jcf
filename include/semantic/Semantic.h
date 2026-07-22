@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_set>
+#include <vector>
 
 #include "ast/AST.h"
 #include "ast/AstNode.h"

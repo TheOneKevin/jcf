@@ -2,6 +2,7 @@
 
 #include <stack>
 #include <vector>
+#include <memory_resource>
 
 #include "ast/Expr.h"
 #include "ast/ExprNode.h"

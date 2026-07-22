@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <memory_resource>
+#include <vector>
 
 using BumpAllocator = std::pmr::polymorphic_allocator<std::byte>;
 

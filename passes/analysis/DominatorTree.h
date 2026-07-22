@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <unordered_set>
+#include <memory_resource>
 
 #include "../IRPasses.h"
 #include "tir/TIR.h"

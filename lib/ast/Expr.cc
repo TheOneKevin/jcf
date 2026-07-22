@@ -3,6 +3,7 @@
 
 #include <cctype>
 #include <ostream>
+#include <memory_resource>
 
 #include "ast/ExprNode.h"
 

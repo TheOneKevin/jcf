@@ -4,6 +4,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <memory_resource>
 
 #include "ast/AST.h"
 #include "ast/AstNode.h"

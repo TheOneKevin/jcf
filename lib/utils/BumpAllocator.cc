@@ -1,5 +1,7 @@
 #include "utils/BumpAllocator.h"
 
+#include <memory>
+
 #include <utils/Assert.h>
 
 namespace utils {

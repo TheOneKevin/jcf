@@ -2,6 +2,7 @@
 
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "ast/AstNode.h"
 #include "ast/Type.h"

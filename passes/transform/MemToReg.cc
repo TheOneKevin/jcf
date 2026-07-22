@@ -1,5 +1,6 @@
 #include <deque>
 #include <unordered_set>
+#include <memory_resource>
 
 #include "../IRPasses.h"
 #include "../analysis/DominatorTree.h"

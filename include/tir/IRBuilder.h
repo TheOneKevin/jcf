@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include "tir/BasicBlock.h"
 #include "tir/CompilationUnit.h"
 #include "tir/Constant.h"
