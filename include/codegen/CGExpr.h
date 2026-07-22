@@ -138,6 +138,9 @@ class CGExprEvaluator final : public ast::ExprEvaluator<details::ValueWrapper> {
 public:
    using T = details::ValueWrapper;
    explicit CGExprEvaluator(CodeGenerator& cg) : cg{cg} {}
+   // Evaluates a wrapper to an r-value, first resolving a bare instance field
+   // against `this`. Used by CodeGenerator::emitExpr.
+   tir::Value* toRValue(T v) const;
 
 private:
    T mapValue(ast::exprnode::ExprValue& node) const override;
@@ -156,6 +159,18 @@ private:
    T evalCast(ast::exprnode::Cast& op, T type, T value) const override;
    bool validate(T const& v) const override { return v.validate(cg); }
    T castIntegerType(ast::Type const*, tir::Type*, T value) const;
+   // Resolves a bare (unqualified) instance-field reference against the
+   // implicit `this` receiver; all other wrappers pass through unchanged. This
+   // is what makes `field` mean `this.field` inside an instance method.
+   T materialize(T v) const;
+   // Emits a getelementptr for `objPtr->field`, returning it as an L-value.
+   T emitFieldAccess(tir::Value* objPtr, ast::FieldDecl const* field,
+                     ast::Type const* resultAstTy) const;
+   // Builds a java.lang.String object from a literal's code units.
+   T emitStringLiteral(std::string_view utf8, ast::Type const* aTy) const;
+   // Allocates an object of `cls` (malloc + vtable pointer store), returning the
+   // object pointer. Does not run any constructor.
+   tir::Value* allocObject(ast::ClassDecl const* cls) const;
 
 private:
    CodeGenerator& cg;

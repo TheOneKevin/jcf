@@ -58,15 +58,22 @@ void CodeGenerator::emitVTable(ast::ClassDecl const* decl) {
 }
 
 void CodeGenerator::emitClassDecl(ast::ClassDecl const* decl) {
-   // 1. Emit the function declarations
+   // 1. Emit the function declarations (methods and constructors)
    for(auto* method : decl->methods()) emitFunctionDecl(method);
+   for(auto* ctor : decl->constructors()) emitFunctionDecl(ctor);
    // 2. Emit any static fields as globals
    // 3. Construct the class struct type as well
    std::vector<tir::Type*> fieldTypes{};
    // 3a) Add the VTable pointer field
    fieldTypes.push_back(tir::Type::getPointerTy(ctx));
-   // 3b) Inherited members first
+   // 3b) Instance fields, in a stable order (inherited first, then this class's
+   //     own) so a field keeps the same struct slot in a subclass as in its
+   //     declaring class. getInheritedMembersInOrder() bundles the inherited
+   //     members together with this class's own fields, and it includes static
+   //     fields as well; statics are class-level globals rather than part of the
+   //     object layout, so we skip them here and create their globals in 3c.
    for(auto* field : hc.getInheritedMembersInOrder(decl)) {
+      if(field->modifiers().isStatic()) continue;
       fieldTypes.push_back(emitType(field->type()));
       if(fieldIndexMap.contains(field)) {
          assert(fieldIndexMap[field] == static_cast<int>(fieldTypes.size() - 1));
@@ -74,20 +81,15 @@ void CodeGenerator::emitClassDecl(ast::ClassDecl const* decl) {
          fieldIndexMap[field] = fieldTypes.size() - 1;
       }
    }
-   // 3c) Member and static fields
+   // 3c) This class's own static fields become globals. (Instance fields were
+   //     already laid out in 3b, which includes this class's own fields, so we
+   //     must not add them to the struct a second time.)
    for(auto* field : decl->fields()) {
-      auto ty = emitType(field->type());
-      // 3c.i) Static fields
-      if(field->modifiers().isStatic()) {
-         Mangler m{nr};
-         m.MangleDecl(field);
-         gvMap[field] = cu.CreateGlobalVariable(ty, m.getMangledName());
-      }
-      // 3c.ii) Member fields
-      else {
-         fieldTypes.push_back(ty);
-         fieldIndexMap[field] = fieldTypes.size() - 1;
-      }
+      if(!field->modifiers().isStatic()) continue;
+      Mangler m{nr};
+      m.MangleDecl(field);
+      gvMap[field] = cu.CreateGlobalVariable(emitType(field->type()),
+                                             m.getMangledName());
    }
    // 4. Create the struct type and map it
    if(!fieldTypes.empty()) {
@@ -96,16 +98,54 @@ void CodeGenerator::emitClassDecl(ast::ClassDecl const* decl) {
 }
 
 void CodeGenerator::emitClass(ast::ClassDecl const* decl) {
-   // 1. Emit vtable and its ctor function
-   //    But we shouldn't emit abstract class members and vtables
-   if(!decl->modifiers().isAbstract()) {
-      emitVTable(decl);
-   }
-   // 2. Emit the class methods
+   // NOTE: vtables are emitted in a separate earlier pass (see run()) so that
+   // vtableMap is complete before any method body constructs an object.
+   // 2. Emit all non-abstract method bodies (static and instance).
+   //    emitFunction skips native methods internally.
    for(auto* method : decl->methods()) {
-      if(method->modifiers().isStatic()) {
-         emitFunction(method);
+      if(method->modifiers().isAbstract()) continue;
+      emitFunction(method);
+   }
+   // 3. Emit constructor bodies.
+   for(auto* ctor : decl->constructors()) {
+      emitFunction(ctor);
+   }
+}
+
+ast::ClassDecl const* CodeGenerator::directSuperClass(
+      ast::ClassDecl const* decl) const {
+   // superClasses()[0] is the explicit `extends` class; [1] is the implicit
+   // java.lang.Object superclass used when there is no explicit extends.
+   auto supers = decl->superClasses();
+   ast::ReferenceType* super = supers[0] ? supers[0] : supers[1];
+   if(!super) return nullptr;
+   return dyn_cast<ast::ClassDecl>(super->decl());
+}
+
+void CodeGenerator::emitCtorPrologue(ast::MethodDecl const* ctor) {
+   auto* cls = cast<ast::ClassDecl>(ctor->parent());
+   auto* thisArg = curFn->args().front();
+   // 1. Implicit super(): call the direct superclass's zero-argument
+   //    constructor. Joos has no explicit super(...)/this(...) calls, so this
+   //    matches Java's implicit-super semantics.
+   if(auto* superCls = directSuperClass(cls)) {
+      ast::MethodDecl const* superCtor = nullptr;
+      for(auto* c : superCls->constructors())
+         if(c->parameters().empty()) {
+            superCtor = c;
+            break;
+         }
+      if(superCtor && gvMap.count(superCtor)) {
+         builder.createCallInstr(cast<tir::Function>(gvMap[superCtor]),
+                                 {thisArg});
       }
+   }
+   // 2. Instance field initializers, in declaration order.
+   for(auto* field : cls->fields()) {
+      if(field->modifiers().isStatic() || !field->hasInit()) continue;
+      auto idx = static_cast<unsigned>(fieldIndexMap.at(field));
+      auto* gep = builder.createGEPInstr(thisArg, typeMap[cls], {idx});
+      builder.createStoreInstr(emitExpr(field->init()), gep);
    }
 }
 

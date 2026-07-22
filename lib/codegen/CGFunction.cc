@@ -67,11 +67,16 @@ void CodeGenerator::emitFunction(ast::MethodDecl const* decl) {
    // 1. Grab the function from the gvMap and clear the valueMap
    auto func = cast<tir::Function>(gvMap[decl]);
    curFn = func;
+   // Instance methods and constructors receive `this` as arg 0; static methods
+   // have no `this`.
+   curThis_ = decl->modifiers().isStatic() ? nullptr : func->args().front();
    valueMap.clear();
    // 2. Emit the function body and add the allocas for the locals
    auto entry = builder.createBasicBlock(func);
    builder.setInsertPoint(entry->begin());
-   unsigned paramNum = 0;
+   // Declared parameters map to function args starting after the implicit
+   // `this` (arg 0) for instance methods and constructors.
+   unsigned paramNum = decl->modifiers().isStatic() ? 0 : 1;
    for(auto* local : decl->decls()) {
       auto* const typedLocal = cast<ast::VarDecl>(local);
       auto* const localTy = emitType(typedLocal->type());
@@ -83,6 +88,9 @@ void CodeGenerator::emitFunction(ast::MethodDecl const* decl) {
                tir::StoreInst::Create(ctx, func->arg(paramNum++), val));
       }
    }
+   // Constructors run the implicit super() call and field initializers before
+   // their body.
+   if(decl->isConstructor()) emitCtorPrologue(decl);
    emitStmt(decl->body());
    // 3. If the BB we're in does not end in a terminator, add a return
    if(builder.currentBlock()) {
@@ -93,6 +101,7 @@ void CodeGenerator::emitFunction(ast::MethodDecl const* decl) {
    }
    // 4. End the function by clearing the curFn
    curFn = nullptr;
+   curThis_ = nullptr;
 }
 
 } // namespace codegen

@@ -133,8 +133,13 @@ public:
    uint32_t getBitWidth() const { return getData(); }
    uint32_t getSizeInBits() const override { return getBitWidth(); }
    bool isSizeBounded() const override { return true; }
-   [[clang::no_sanitize("shift-exponent")]] uint64_t getMask() const {
-      return (1ULL << getBitWidth()) - 1;
+   uint64_t getMask() const {
+      // Shifting a 64-bit value by 64 is undefined behaviour (on AArch64 the
+      // shift amount is taken mod 64, so `1 << 64` yields 1 and the mask would
+      // wrongly be 0, zeroing every i64 constant). Handle the full-width case
+      // explicitly instead.
+      auto bits = getBitWidth();
+      return bits >= 64 ? ~0ULL : ((1ULL << bits) - 1);
    }
 };
 

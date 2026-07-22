@@ -208,3 +208,8 @@ add_tool(
     tirtest
     "tools/tirtest/main.cc"
 )
+
+add_tool(
+    tir-vm
+    "tools/tir-vm/main.cc"
+)

@@ -75,6 +75,20 @@ public:
    }
 
    /**
+    * @brief Create an indirect call through a function pointer.
+    *
+    * @param retTy The result type of the call (cannot be derived from the
+    *              callee, which is an untyped `ptr`)
+    * @param calleePtr The function pointer to call
+    * @param args The arguments to pass
+    * @return Instruction* A pointer to the instruction
+    */
+   Instruction* createCallInstr(Type* retTy, Value* calleePtr,
+                                utils::range_ref<Value*> args) {
+      return insert(CallInst::CreateIndirect(ctx_, retTy, calleePtr, args));
+   }
+
+   /**
     * @brief Create a call to an intrinsic function.
     *
     * @param kind The intrinsic kind

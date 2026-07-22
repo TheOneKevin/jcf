@@ -228,8 +228,11 @@ T CGExprEvaluator::mapValue(ex::ExprValue& node) const {
       auto kind = methodDecl->modifiers().isStatic() ? T::Kind::StaticFn
                                                      : T::Kind::MemberFn;
       auto fn = cg.gvMap[methodDecl];
-      // TODO: Virtual functions should be handled somewhere here?
-      return T::Fn(kind, methodDecl, fn);
+      // For an unqualified instance-method call the receiver is the implicit
+      // `this`; a qualified call (obj.m()) overrides this in evalMemberAccess.
+      // In a static context cg.curThis_ is null (the call must be qualified).
+      tir::Value* refThis = (kind == T::Kind::MemberFn) ? cg.curThis_ : nullptr;
+      return T::Fn(kind, methodDecl, fn, refThis);
    } else if(auto memberName = dyn_cast<ex::MemberName>(node)) {
       auto irTy = cg.emitType(cast<ast::TypedDecl>(memberName->decl())->type());
       // 1. If it's a field decl, handle the static and non-static cases
@@ -250,8 +253,9 @@ T CGExprEvaluator::mapValue(ex::ExprValue& node) const {
          return T::L(aTy, irTy, cg.valueMap[localDecl]);
       }
    } else if(auto thisNode = dyn_cast<ex::ThisNode>(node)) {
-      // "this" will be the first argument of the function
-      return T::L(aTy, cg.emitType(aTy), curFn.args().front());
+      // "this" is the object pointer (arg 0). It is an r-value: using `this`
+      // yields the pointer itself, not a load from it.
+      return T::R(aTy, cg.curThis_);
    } else if(auto literal = dyn_cast<ex::LiteralNode>(node)) {
       if(literal->builtinType()->isNumeric()) {
          auto bits = static_cast<uint8_t>(literal->builtinType()->typeSizeBits());
@@ -260,20 +264,103 @@ T CGExprEvaluator::mapValue(ex::ExprValue& node) const {
       } else if(literal->builtinType()->isBoolean()) {
          return T::R(aTy, Constant::CreateBool(ctx, literal->getAsInt()));
       } else if(literal->builtinType()->isString()) {
-         // TODO: String type
-         return T::L(
-               aTy, Type::getPointerTy(ctx), Constant::CreateNullPointer(ctx));
+         return emitStringLiteral(literal->getAsString(), aTy);
       } else {
          // Null type
          return T::R(aTy, Constant::CreateNullPointer(ctx));
       }
    } else if(auto type = dyn_cast<ex::TypeNode>(node)) {
+      // For `new C(...)` the resolver stores the chosen constructor on the type
+      // node; hand it to evalNewObject as a function wrapper. Other uses of a
+      // type node (casts, array element types) carry only the AST type.
+      if(auto* ctor = dyn_cast_or_null<ast::MethodDecl>(type->decl())) {
+         if(ctor->isConstructor())
+            return T::Fn(T::Kind::StaticFn, ctor, cg.gvMap[ctor]);
+      }
       return T{aTy};
    }
    std::unreachable();
 }
 
+T CGExprEvaluator::materialize(T v) const {
+   if(v.kind() != T::Kind::AstDecl) return v;
+   auto* fieldDecl = dyn_cast<ast::FieldDecl>(v.asDecl());
+   if(!fieldDecl || fieldDecl->modifiers().isStatic()) return v;
+   // A bare instance field is an implicit `this.field` access.
+   return emitFieldAccess(cg.curThis_, fieldDecl, fieldDecl->type());
+}
+
+T CGExprEvaluator::emitFieldAccess(tir::Value* objPtr,
+                                   ast::FieldDecl const* field,
+                                   ast::Type const* resultAstTy) const {
+   // Field slots are stable across the hierarchy (Phase 1b), so the declaring
+   // class's struct type yields the correct offset for any receiver whose
+   // runtime class derives from it.
+   auto* cls = cast<ast::ClassDecl>(field->parent());
+   auto* structTy = cg.typeMap[cls];
+   auto idx = static_cast<unsigned>(cg.fieldIndexMap.at(field));
+   auto* gep = cg.builder.createGEPInstr(objPtr, structTy, {idx});
+   return T::L(resultAstTy, cg.emitType(field->type()), gep);
+}
+
+tir::Value* CGExprEvaluator::toRValue(T v) const {
+   return materialize(v).asRValue(cg.builder);
+}
+
+tir::Value* CGExprEvaluator::allocObject(ast::ClassDecl const* cls) const {
+   auto* structTy = cg.typeMap[cls];
+   auto szBytes = (structTy->getSizeInBits() + 1) / 8;
+   auto* objPtr = cg.builder.createIntrinsicCallInstr(
+         II::malloc, {Constant::CreateInt32(ctx, szBytes)});
+   // Store the class's vtable pointer into field 0 so virtual dispatch works.
+   if(cg.vtableMap.count(cls)) {
+      auto* vtGep = cg.builder.createGEPInstr(objPtr, structTy, {0u});
+      cg.builder.createStoreInstr(cg.vtableMap[cls], vtGep);
+   }
+   return objPtr;
+}
+
+T CGExprEvaluator::emitStringLiteral(std::string_view utf8,
+                                     ast::Type const* aTy) const {
+   // Build a char[] holding the literal's code units, then wrap it in a
+   // java.lang.String via its String(char[]) constructor.
+   auto* charTy = Type::getInt16Ty(ctx);
+   auto n = static_cast<uint32_t>(utf8.size());
+   // 1. Allocate and fill the backing char buffer.
+   auto* dataPtr = cg.builder.createIntrinsicCallInstr(
+         II::malloc, {Constant::CreateInt32(ctx, n * 2)});
+   auto* charArrTy = ArrayType::get(ctx, charTy, 0);
+   for(uint32_t i = 0; i < n; ++i) {
+      auto* elem = cg.builder.createGEPInstr(dataPtr, charArrTy, {i});
+      cg.builder.createStoreInstr(
+            Constant::CreateInt(ctx, 16, static_cast<uint8_t>(utf8[i])), elem);
+   }
+   // 2. Allocate the array struct { i32 length; ptr data }.
+   auto szBytes = (cg.arrayType_->getSizeInBits() + 1) / 8;
+   auto* arrStruct = cg.builder.createIntrinsicCallInstr(
+         II::malloc, {Constant::CreateInt32(ctx, szBytes)});
+   cg.emitSetArrayPtr(arrStruct, dataPtr);
+   cg.emitSetArraySz(arrStruct, Constant::CreateInt32(ctx, n));
+   // 3. Construct a String from the char[].
+   auto* stringCls = cg.nr.GetJavaLang().String;
+   ast::MethodDecl const* ctor = nullptr;
+   for(auto* c : stringCls->constructors()) {
+      if(c->parameters().size() == 1 &&
+         c->parameters().front()->type()->isArray()) {
+         ctor = c;
+         break;
+      }
+   }
+   assert(ctor && "java.lang.String is missing a String(char[]) constructor");
+   auto* objPtr = allocObject(stringCls);
+   std::vector<tir::Value*> ctorArgs{objPtr, arrStruct};
+   cg.builder.createCallInstr(cast<tir::Function>(cg.gvMap[ctor]), ctorArgs);
+   return T::R(aTy, objPtr);
+}
+
 T CGExprEvaluator::evalBinaryOp(ex::BinaryOp& op, T lhs, T rhs) const {
+   lhs = materialize(lhs);
+   rhs = materialize(rhs);
    using OpType = ex::BinaryOp::OpType;
    auto aTy = op.resultType();
    switch(op.opType()) {
@@ -391,6 +478,7 @@ T CGExprEvaluator::evalUnaryOp(ex::UnaryOp& op, T rhs) const {
    using BinOp = Instruction::BinOp;
    using OpType = ex::UnaryOp::OpType;
    auto aTy = op.resultType();
+   rhs = materialize(rhs);
    auto value = rhs.asRValue(cg.builder);
    auto ty = value->type();
    switch(op.opType()) {
@@ -419,9 +507,11 @@ T CGExprEvaluator::evalUnaryOp(ex::UnaryOp& op, T rhs) const {
 
 T CGExprEvaluator::evalMemberAccess(ex::MemberAccess& op, T lhs, T field) const {
    auto aTy = op.resultType();
+   // The receiver may itself be a bare instance field (e.g. `field.x`).
+   lhs = materialize(lhs);
    auto obj = lhs.asRValue(cg.builder);
    auto decl = field.asDecl();
-   // Special case: "field" is actually a function
+   // Special case: "field" is actually a function. Bind the receiver as `this`.
    if(field.kind() == T::Kind::MemberFn) {
       return T::Fn(T::Kind::MemberFn, decl, field.asFn(), obj);
    }
@@ -431,26 +521,51 @@ T CGExprEvaluator::evalMemberAccess(ex::MemberAccess& op, T lhs, T field) const 
       auto arrSz = cg.builder.createLoadInstr(Type::getInt32Ty(ctx), arrSzGep);
       return T::R(aTy, arrSz);
    }
-   // Member access
+   // Instance field access: obj.field. Static fields are resolved directly to
+   // their global in mapValue and never reach here.
    else {
-      assert(false);
+      auto* fieldDecl = cast<ast::FieldDecl>(decl);
+      return emitFieldAccess(obj, fieldDecl, aTy);
    }
 }
 
 T CGExprEvaluator::evalMethodCall(ex::MethodInvocation& op, T method,
                                   const op_array& args) const {
    auto aTy = op.resultType();
+   auto* methodDecl = cast<ast::MethodDecl>(method.asDecl());
    std::vector<Value*> argValues;
    // If this is a member function, push back an extra "this"
+   tir::Value* recv = nullptr;
    if(method.kind() == T::Kind::MemberFn) {
       assert(method.thisRef());
-      argValues.push_back(method.thisRef());
+      recv = method.thisRef();
+      argValues.push_back(recv);
    } else {
       assert(method.kind() == T::Kind::StaticFn);
    }
    // Now we can push back the arguments
    for(auto& arg : args) {
-      argValues.push_back(arg.asRValue(cg.builder));
+      argValues.push_back(materialize(arg).asRValue(cg.builder));
+   }
+   // Virtual dispatch: instance methods that were assigned a vtable slot
+   // (public/protected, non-final overridables) are dispatched through the
+   // receiver's vtable. Static, private and constructor calls bind directly.
+   if(recv && cg.vtableIndexMap.count(methodDecl)) {
+      // 1. Load the vtable pointer from field 0 of the object. Field 0 is the
+      //    vtable pointer in every object layout, so the declaring class's
+      //    struct type gives the right (zero) offset for any subclass receiver.
+      auto* objStructTy = cg.typeMap[cast<ast::ClassDecl>(methodDecl->parent())];
+      auto* vptrGep = cg.builder.createGEPInstr(recv, objStructTy, {0u});
+      auto* vptr = cg.builder.createLoadInstr(Type::getPointerTy(ctx), vptrGep);
+      // 2. Load the function pointer from the method's vtable slot.
+      auto slot = static_cast<unsigned>(cg.vtableIndexMap[methodDecl]);
+      auto* slotGep =
+            cg.builder.createGEPInstr(vptr, cg.vtableTypeUniform_, {slot});
+      auto* fnPtr = cg.builder.createLoadInstr(Type::getPointerTy(ctx), slotGep);
+      // 3. Call indirectly through the loaded function pointer.
+      auto* retTy = cg.emitType(methodDecl->returnTy().type);
+      auto* callVal = cg.builder.createCallInstr(retTy, fnPtr, argValues);
+      return T::R(aTy, callVal);
    }
    auto callVal = cg.builder.createCallInstr(method.asFn(), argValues);
    return T::R(aTy, callVal);
@@ -458,17 +573,22 @@ T CGExprEvaluator::evalMethodCall(ex::MethodInvocation& op, T method,
 
 T CGExprEvaluator::evalNewObject(ex::ClassInstanceCreation& op, T object,
                                  const op_array& args) const {
-   (void)op;
-   (void)object;
-   (void)args;
-   // TODO: Implement this
-   return T::L(op.resultType(),
-               Type::getPointerTy(ctx),
-               Constant::CreateNullPointer(ctx));
+   auto aTy = op.resultType();
+   auto* cls = cast<ast::ClassDecl>(aTy->getAsDecl());
+   // Allocate the object and set its vtable pointer.
+   auto* objPtr = allocObject(cls);
+   // Call the constructor (threaded through `object` by mapValue) with `this`.
+   std::vector<Value*> callArgs;
+   callArgs.push_back(objPtr);
+   for(auto& arg : args)
+      callArgs.push_back(materialize(arg).asRValue(cg.builder));
+   cg.builder.createCallInstr(object.asFn(), callArgs);
+   return T::R(aTy, objPtr);
 }
 
 T CGExprEvaluator::evalNewArray(ex::ArrayInstanceCreation& op, T type,
                                 T size) const {
+   size = materialize(size);
    // This is the AST type of the array elements
    auto aTy = op.resultType();
    // This is the type of the array elements
@@ -497,6 +617,8 @@ T CGExprEvaluator::evalNewArray(ex::ArrayInstanceCreation& op, T type,
 }
 
 T CGExprEvaluator::evalArrayAccess(ex::ArrayAccess& op, T array, T index) const {
+   array = materialize(array);
+   index = materialize(index);
    // Build and check null pointer access
    auto arrStructPtr = array.asRValue(cg.builder);
    cg.builder.createIntrinsicCallInstr(II::check_null, {arrStructPtr});
@@ -522,6 +644,7 @@ T CGExprEvaluator::evalArrayAccess(ex::ArrayAccess& op, T array, T index) const 
 }
 
 T CGExprEvaluator::evalCast(ex::Cast& op, T type, T value) const {
+   value = materialize(value);
    auto aTy = op.resultType();
    auto castType = type.astType();
    if(castType->isNumeric()) {
@@ -530,11 +653,12 @@ T CGExprEvaluator::evalCast(ex::Cast& op, T type, T value) const {
    } else if(castType->isBoolean()) {
       // Booleans must be identity conversion
       return value;
-   } else if(castType->isString()) {
-   } else if(castType->isArray()) {
    } else {
+      // Reference, array and string casts are pointer-preserving at the IR
+      // level (Joos runtime cast checks are not emitted here). Re-wrap the
+      // pointer with the target type.
+      return T::R(aTy, value.asRValue(cg.builder));
    }
-   assert(false);
 }
 
 } // namespace codegen
@@ -548,7 +672,7 @@ namespace codegen {
 Value* CodeGenerator::emitExpr(ast::Expr const* expr) {
    CGExprEvaluator eval{*this};
    T result = eval.EvaluateList(expr->list());
-   return result.asRValue(builder);
+   return eval.toRValue(result);
 }
 
 } // namespace codegen

@@ -57,6 +57,15 @@ private:
    void emitClassDecl(ast::ClassDecl const* decl);
    // Emit the class body (methods and field initializers)
    void emitClass(ast::ClassDecl const* decl);
+   // Emit a constructor's implicit prologue: the super() call to the direct
+   // superclass's zero-arg constructor, followed by instance field initializers.
+   void emitCtorPrologue(ast::MethodDecl const* ctor);
+   // Emit the synthesized jcf.static.init function that runs static field
+   // initializers in a deterministic order before the program entry.
+   void emitStaticInit(ast::LinkingUnit const* lu);
+   // The direct superclass of a class (the explicit `extends`, else Object),
+   // or null for java.lang.Object itself.
+   ast::ClassDecl const* directSuperClass(ast::ClassDecl const* decl) const;
    // Populate the RTTI mappings
    void populateRtti(ast::LinkingUnit const* lu);
    // Populate the method index table
@@ -90,6 +99,10 @@ private:
    tir::Context& ctx;
    tir::CompilationUnit& cu;
    tir::Function* curFn{nullptr};
+   // The `this` pointer of the function currently being emitted (arg 0 for
+   // instance methods and constructors), or null in a static context. Used to
+   // resolve `this` and unqualified instance-member access.
+   tir::Value* curThis_{nullptr};
    // Local AST local decl -> IR alloca
    std::unordered_map<ast::VarDecl const*, tir::AllocaInst*> valueMap{};
    // Global static AST func/field -> IR global value
@@ -108,6 +121,10 @@ private:
    std::unordered_map<ast::ClassDecl const*, tir::Value*> vtableMap{};
    // AST class method -> VTable index
    std::unordered_map<ast::MethodDecl const*, int> vtableIndexMap{};
+   // A uniform vtable struct type {i32 typeid, ptr x maxSlot} used to index into
+   // any class's vtable during virtual dispatch. All per-class vtables share the
+   // same layout prefix, so slot k has the same offset regardless of the type.
+   tir::StructType* vtableTypeUniform_{nullptr};
    tir::IRBuilder builder{ctx};
    semantic::NameResolver& nr;
    semantic::HierarchyChecker& hc;

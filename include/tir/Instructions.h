@@ -304,6 +304,11 @@ public:
 class CallInst final : public Instruction {
 private:
    CallInst(Context& ctx, Value* callee, utils::range_ref<Value*> args);
+   // Indirect form: the callee is an arbitrary value (e.g. a loaded function
+   // pointer) whose type is not a FunctionType, so the result type must be
+   // supplied explicitly rather than derived from the callee.
+   CallInst(Context& ctx, Type* retTy, Value* calleePtr,
+            utils::range_ref<Value*> args);
 
 public:
    static CallInst* Create(Context& ctx, Value* callee,
@@ -311,11 +316,23 @@ public:
       auto buf = ctx.alloc().allocate_bytes(sizeof(CallInst), alignof(CallInst));
       return new(buf) CallInst{ctx, callee, args};
    }
+   // Create an indirect call through `calleePtr` (a `ptr` value) returning
+   // `retTy`. Used for virtual dispatch through vtable slots.
+   static CallInst* CreateIndirect(Context& ctx, Type* retTy, Value* calleePtr,
+                                   utils::range_ref<Value*> args) {
+      auto buf = ctx.alloc().allocate_bytes(sizeof(CallInst), alignof(CallInst));
+      return new(buf) CallInst{ctx, retTy, calleePtr, args};
+   }
 
 public:
    std::ostream& print(std::ostream& os) const override;
    bool isTerminator() const override;
+   // The callee as a Function, or null when this is an indirect call.
    Function* getCallee() const;
+   // The callee operand as a raw value (a Function for direct calls, or the
+   // called pointer for indirect calls). Always non-null.
+   Value* getCalleeValue() const { return getChild(0); }
+   bool isIndirect() const { return getCallee() == nullptr; }
    utils::Generator<Value*> args() const;
    auto nargs() const { return numChildren() - 1; }
    bool hasSideEffects() const override { return true; }

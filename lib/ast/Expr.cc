@@ -142,13 +142,41 @@ static uint8_t parseChar(std::string_view value) {
 }
 
 static void unescapeString(std::string_view in, std::pmr::string& out) {
-   // FIXME(kevin): String literals are broken for now :)
+   // `in` is the raw lexeme including the surrounding double quotes
+   // (e.g. "\"Hello\\n\""). Skip the opening quote and translate escape
+   // sequences until the closing quote, mirroring parseChar()'s handling above.
    for(size_t i = 1; i < in.length(); i++) {
       char c = in.at(i);
-      if(c == '\"') {
-         break;
-      } else {
+      if(c == '\"') break;
+      if(c != '\\') {
          out.push_back(c);
+         continue;
+      }
+      // Escape sequence: consume the backslash and inspect the next char.
+      ++i;
+      assert(i < in.length() && "dangling escape in string literal");
+      char e = in.at(i);
+      // Octal escape of one to three digits (\0 .. \377).
+      if(e >= '0' && e <= '7') {
+         int value = e - '0';
+         for(int k = 0; k < 2 && i + 1 < in.length() && in.at(i + 1) >= '0' &&
+                        in.at(i + 1) <= '7';
+             ++k) {
+            value = (value << 3) | (in.at(++i) - '0');
+         }
+         out.push_back(static_cast<char>(value));
+         continue;
+      }
+      switch(e) {
+         case 'n': out.push_back('\n'); break;
+         case 't': out.push_back('\t'); break;
+         case 'r': out.push_back('\r'); break;
+         case 'b': out.push_back('\b'); break;
+         case 'f': out.push_back('\f'); break;
+         case '\\': out.push_back('\\'); break;
+         case '\'': out.push_back('\''); break;
+         case '\"': out.push_back('\"'); break;
+         default: assert(false && "Invalid escape sequence in string literal");
       }
    }
 }

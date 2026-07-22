@@ -140,11 +140,24 @@ CallInst::CallInst(Context& ctx, Value* callee, utils::range_ref<Value*> args)
    static_assert(sizeof(CallInst) == sizeof(Instruction));
 }
 
+CallInst::CallInst(Context& ctx, Type* retTy, Value* calleePtr,
+                   utils::range_ref<Value*> args)
+      : Instruction{ctx, retTy} {
+   addChild(calleePtr);
+   args.for_each([this](Value* arg) { addChild(arg); });
+}
+
 std::ostream& CallInst::print(std::ostream& os) const {
    if(!type()->isVoidType()) printSelf(os, this) << " = ";
    os << "call";
    if(!type()->isVoidType()) os << ":" << *type();
-   os << " @" << getChild(0)->name() << "(";
+   os << " ";
+   // Direct calls name the callee (@fn); indirect calls print the callee value.
+   if(auto* callee = getCallee())
+      os << "@" << callee->name();
+   else
+      printNameOrConst(os, getChild(0));
+   os << "(";
    for(unsigned i = 1; i < numChildren(); ++i) {
       printNameOrConst(os, getChild(i));
       if(i != numChildren() - 1) os << ", ";
@@ -154,7 +167,7 @@ std::ostream& CallInst::print(std::ostream& os) const {
    return os;
 }
 
-Function* CallInst::getCallee() const { return cast<Function>(getChild(0)); }
+Function* CallInst::getCallee() const { return dyn_cast<Function>(getChild(0)); }
 
 utils::Generator<Value*> CallInst::args() const {
    for(unsigned i = 1; i < numChildren(); ++i) {
@@ -162,7 +175,10 @@ utils::Generator<Value*> CallInst::args() const {
    }
 }
 
-bool CallInst::isTerminator() const { return getCallee()->attrs().noreturn; }
+bool CallInst::isTerminator() const {
+   auto* callee = getCallee();
+   return callee && callee->attrs().noreturn;
+}
 
 /* ===--------------------------------------------------------------------=== */
 // BinaryInst implementation

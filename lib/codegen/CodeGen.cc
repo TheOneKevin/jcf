@@ -1,5 +1,6 @@
 #include "codegen/CodeGen.h"
 
+#include <algorithm>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -53,7 +54,21 @@ void CG::run(ast::LinkingUnit const* lu) {
    populateRtti(lu);
    // 2. Populate method index table
    populateMethodIndexTable(lu);
-   // 2. Generate the class structs
+   // 2b. Build the uniform vtable struct type {i32 typeid, ptr x maxSlot} used
+   //     to index into any class's vtable during virtual dispatch. Every
+   //     per-class vtable shares this layout prefix, so slot k has the same
+   //     byte offset regardless of the concrete type.
+   {
+      int maxSlot = 0;
+      for(auto const& [method, idx] : vtableIndexMap)
+         maxSlot = std::max(maxSlot, idx);
+      std::vector<tir::Type*> vfields(static_cast<unsigned>(maxSlot) + 1);
+      vfields[0] = tir::Type::getInt32Ty(ctx);
+      for(int i = 1; i <= maxSlot; ++i)
+         vfields[i] = tir::Type::getPointerTy(ctx);
+      vtableTypeUniform_ = tir::StructType::get(ctx, vfields);
+   }
+   // 3. Generate the class structs
    for(auto* cu : lu->compliationUnits()) {
       for(auto* decl : cu->decls()) {
          if(auto* classDecl = dyn_cast<ast::ClassDecl>(decl)) {
@@ -62,7 +77,18 @@ void CG::run(ast::LinkingUnit const* lu) {
          }
       }
    }
-   // 3. Generate the class member functions
+   // 4. Emit every class's vtable (global + populating ctor) BEFORE any method
+   //    body. A body may `new` any class (e.g. HelloJDK, compiled first, builds
+   //    a java.lang.String), so vtableMap must be complete for all classes
+   //    before object construction is emitted.
+   for(auto* cu : lu->compliationUnits()) {
+      for(auto* decl : cu->decls()) {
+         if(auto* classDecl = dyn_cast<ast::ClassDecl>(decl)) {
+            if(!classDecl->modifiers().isAbstract()) emitVTable(classDecl);
+         }
+      }
+   }
+   // 5. Generate the class member functions
    for(auto* cu : lu->compliationUnits()) {
       for(auto* decl : cu->decls()) {
          if(auto* classDecl = dyn_cast<ast::ClassDecl>(decl)) {
@@ -70,6 +96,32 @@ void CG::run(ast::LinkingUnit const* lu) {
          }
       }
    }
+   // 5. Emit the static field initializers (System.out = new PrintStream(), ...)
+   emitStaticInit(lu);
+}
+
+void CG::emitStaticInit(ast::LinkingUnit const* lu) {
+   // A single synthesized function running static field initializers in a
+   // deterministic (source) order. tir-vm runs it before the program entry.
+   auto* fnTy = tir::FunctionType::get(ctx, tir::Type::getVoidTy(ctx), {});
+   auto* fn = cu.CreateFunction(fnTy, "jcf.static.init");
+   curFn = fn;
+   curThis_ = nullptr; // static context: no `this`
+   valueMap.clear();
+   auto* entry = builder.createBasicBlock(fn);
+   builder.setInsertPoint(entry->begin());
+   for(auto* compUnit : lu->compliationUnits()) {
+      for(auto* decl : compUnit->decls()) {
+         auto* classDecl = dyn_cast<ast::ClassDecl>(decl);
+         if(!classDecl) continue;
+         for(auto* field : classDecl->fields()) {
+            if(!field->modifiers().isStatic() || !field->hasInit()) continue;
+            builder.createStoreInstr(emitExpr(field->init()), gvMap[field]);
+         }
+      }
+   }
+   builder.createReturnInstr();
+   curFn = nullptr;
 }
 
 tir::Value* CG::emitGetArraySz(tir::Value* ptr) {

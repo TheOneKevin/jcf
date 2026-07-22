@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <initializer_list>
 #include <ranges>
 #include <type_traits>
@@ -261,27 +262,41 @@ public:
       sz_ = std::ranges::size(range);
    }
 
+   // Unlike the vector/view constructors above (which store a non-owning
+   // pointer to a container that outlives the call), a braced-init-list's
+   // backing array dies at the end of the full-expression. Iterating it lazily
+   // in for_each would read freed memory, so we eagerly copy the elements into
+   // an inline buffer and mark the view as owning.
    template <typename U>
       requires std::convertible_to<U, T>
    range_ref(std::initializer_list<U>&& list) {
-      range_ = const_cast<void*>(static_cast<void const*>(&list));
-      foreach_ = [](void* r, details::function_ref<void(T)> callback) {
-         for(auto&& v : *reinterpret_cast<decltype(&list)>(r)) callback(v);
-      };
+      assert(list.size() <= kInlineCapacity &&
+             "range_ref initializer_list exceeds inline buffer capacity");
+      std::size_t i = 0;
+      for(auto&& v : list) inl_[i++] = v;
       sz_ = list.size();
+      owned_ = true;
    }
 
    inline void for_each(details::function_ref<void(T)> callback) {
-      if(foreach_) foreach_(range_, callback);
+      if(owned_) {
+         for(std::size_t i = 0; i < sz_; ++i) callback(inl_[i]);
+      } else if(foreach_) {
+         foreach_(range_, callback);
+      }
    }
 
    inline std::size_t size() const { return sz_; }
 
 private:
    using range_fun_t = void (*)(void*, details::function_ref<void(T)>);
+   static constexpr std::size_t kInlineCapacity = 8;
    void* range_ = nullptr;
    range_fun_t foreach_ = nullptr;
    std::size_t sz_ = 0;
+   // Storage for the owning (initializer_list) case; empty otherwise.
+   std::array<T, kInlineCapacity> inl_{};
+   bool owned_ = false;
 };
 
 /**

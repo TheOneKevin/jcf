@@ -9,6 +9,9 @@ public class OutputStream {
         PrintStream.nativeWrite(b);
     }
     protected static native int nativeWrite(int b);
+    public static void put(int b) {
+        OutputStream.nativeWrite(b);
+    }
     public void flush() {
     }
 }
