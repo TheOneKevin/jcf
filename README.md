@@ -72,3 +72,19 @@ Our project directory structure is:
 > **Note:** Use `llvm@17` rather than the latest `llvm`. Newer libc++ fully
 > removes some C++17-deprecated facilities (e.g. `std::result_of`) that this
 > codebase still relies on.
+
+## Running examples on the TIR VM
+
+You can try out the VM once built by executing:
+```
+./build/tir-vm tests/vm/HelloJDK.java
+```
+and you should see something like:
+```
+Hello, World!
+tir-vm: '_JF8HelloJDK4testEi' returned 0
+```
+You should also check out the optimizing compiler frontend `jcc1` alone:
+```
+jcc1 --help
+```
